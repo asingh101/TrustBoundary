@@ -1,0 +1,48 @@
+# Virtual environments
+venv/
+.venv/
+backend/.venv/
+env/
+.env/
+
+# Secrets and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa
+id_rsa.*
+credentials
+credentials.*
+**/secrets/**
+*.secret
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# Streamlit / local runtime
+.streamlit/secrets.toml
+
+# Logs and local dumps
+*.log
+*.sqlite3

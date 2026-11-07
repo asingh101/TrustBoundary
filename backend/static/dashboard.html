@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Kill Switch</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#090d16;color:#f8fafc;font:600 22px/1.4 system-ui,sans-serif;min-height:100vh;padding:24px}
+body.flash{animation:flashBorder 1s}
+@keyframes flashBorder{0%,100%{box-shadow:inset 0 0 0 0 transparent}20%,80%{box-shadow:inset 0 0 0 8px #ef4444}}
+#wait{text-align:center;padding:80px 20px}
+#wait p{font-size:2rem;margin-bottom:28px}
+#wait input{display:block;width:min(480px,90%);margin:12px auto;padding:14px;font-size:1.1rem;background:#111827;color:#f8fafc;border:1px solid #334155;border-radius:8px}
+#wait button{margin-top:16px;padding:14px 32px;font-size:1.2rem;background:#10b981;color:#090d16;border:0;border-radius:8px;font-weight:700;cursor:pointer}
+#dash{display:none}
+.banner{text-align:center;font-size:3.2rem;font-weight:800;letter-spacing:.04em;padding:28px;margin-bottom:24px;border-radius:12px;background:#111827}
+.banner.run{color:#10b981}.banner.dead{color:#ef4444}
+.try{background:#111827;border-radius:12px;padding:20px 24px;margin-bottom:24px}
+.try h2{font-size:1.25rem;margin-bottom:14px;opacity:.9}
+.try form{display:flex;gap:12px;flex-wrap:wrap}
+.try input{flex:1;min-width:200px;padding:12px 14px;font-size:1.05rem;background:#090d16;color:#f8fafc;border:1px solid #334155;border-radius:8px;font-family:ui-monospace,Menlo,monospace}
+.try button{padding:12px 22px;font-size:1.05rem;font-weight:700;background:#10b981;color:#090d16;border:0;border-radius:8px;cursor:pointer}
+#simOut{margin-top:14px;font-size:1.05rem;min-height:1.4em}
+#simOut.ok{color:#10b981}#simOut.bad{color:#ef4444}#simOut.msg{color:#94a3b8}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px}
+.tile{background:#111827;border-radius:12px;padding:28px;text-align:center}
+.tile .n{font-size:3.5rem;font-weight:800;display:block}
+.tile .l{font-size:1.1rem;opacity:.7;margin-top:4px}
+.tile.ok .n{color:#10b981}.tile.bad .n{color:#ef4444}
+.kill{display:block;width:100%;margin-bottom:24px;padding:28px;font-size:2rem;font-weight:800;background:#ef4444;color:#fff;border:0;border-radius:12px;cursor:pointer;letter-spacing:.05em}
+.kill:disabled{opacity:.6;cursor:default}
+.panel{background:#111827;border-radius:12px;overflow:hidden}
+table{width:100%;border-collapse:collapse}
+th,td{padding:14px 18px;text-align:left;border-bottom:1px solid #1e293b}
+th{font-size:.95rem;opacity:.6;text-transform:uppercase;letter-spacing:.06em}
+td.cmd{font-family:ui-monospace,Menlo,monospace;font-size:1.05rem;word-break:break-all}
+.badge{display:inline-block;padding:4px 12px;border-radius:6px;font-size:.9rem;font-weight:800}
+.badge.ok{background:#064e3b;color:#10b981}.badge.bad{background:#7f1d1d;color:#ef4444}
+tr.ok{background:rgba(16,185,129,.08)}tr.bad{background:rgba(239,68,68,.18)}
+@media(max-width:700px){.tiles{grid-template-columns:1fr}.banner{font-size:2rem}}
+</style>
+</head>
+<body>
+<div id="wait">
+  <p>Waiting for an agent session...</p>
+  <input id="sidIn" placeholder="session_id" autocomplete="off">
+  <input id="tokIn" placeholder="token" autocomplete="off" type="password">
+  <button id="goBtn" type="button">Connect</button>
+</div>
+<div id="dash">
+  <div id="banner" class="banner run">AGENT RUNNING</div>
+  <div class="try">
+    <h2>Try to break it</h2>
+    <form id="simForm">
+      <input id="simCmd" type="text" placeholder="e.g. rm -rf /" autocomplete="off">
+      <button type="submit">Test command</button>
+    </form>
+    <div id="simOut"></div>
+  </div>
+  <div class="tiles">
+    <div class="tile"><span class="n" id="nCmd">0</span><span class="l">Commands</span></div>
+    <div class="tile ok"><span class="n" id="nOk">0</span><span class="l">Allowed</span></div>
+    <div class="tile bad"><span class="n" id="nBad">0</span><span class="l">Blocked</span></div>
+  </div>
+  <button class="kill" id="killBtn" type="button">TERMINATE AGENT</button>
+  <div class="panel"><table><thead><tr><th>Time</th><th>Command</th><th>Status</th><th>Reason</th></tr></thead><tbody id="tbody"></tbody></table></div>
+</div>
+<script>
+(function(){
+  var sid=null,token=null,seen=0,flashing=false;
+  var RULES={rm_rf:"Dangerous recursive deletion",sensitive_file:"Sensitive file access",auth:"Authentication failed",error:"Evaluation error"};
+  function parseHash(){
+    var p=new URLSearchParams(location.hash.slice(1));
+    var s=p.get("sid"),t=p.get("token");
+    if(s&&t){sid=s;token=t;return true}
+    return false;
+  }
+  function headers(){return{"X-Session-Token":token,"Content-Type":"application/json"}}
+  function fmtTime(iso){
+    try{var d=new Date(iso);if(isNaN(d))return"-";
+      return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")+":"+String(d.getSeconds()).padStart(2,"0");
+    }catch(e){return"-"}
+  }
+  function reasonOf(e){
+    if(e.reason)return e.reason;
+    if(e.status==="ALLOWED")return "—";
+    return RULES[e.rule]||e.rule||"Blocked";
+  }
+  function isBad(st){return st==="BLOCKED"||st==="TERMINATED"}
+  function showDash(){document.getElementById("wait").style.display="none";document.getElementById("dash").style.display="block"}
+  function render(logs){
+    var ok=0,bad=0,tb=document.getElementById("tbody");
+    tb.textContent="";
+    var rows=logs.slice().reverse();
+    for(var i=0;i<rows.length;i++){
+      var e=rows[i],blocked=isBad(e.status);
+      if(blocked)bad++;else if(e.status==="ALLOWED")ok++;
+      var tr=document.createElement("tr");tr.className=blocked?"bad":"ok";
+      var tdT=document.createElement("td");tdT.textContent=fmtTime(e.timestamp);
+      var tdC=document.createElement("td");tdC.className="cmd";tdC.textContent=e.command==null?"":String(e.command);
+      var tdS=document.createElement("td");
+      var badge=document.createElement("span");badge.className="badge "+(blocked?"bad":"ok");
+      badge.textContent=blocked?"BLOCKED":"ALLOWED";tdS.appendChild(badge);
+      var tdR=document.createElement("td");tdR.textContent=reasonOf(e);
+      tr.appendChild(tdT);tr.appendChild(tdC);tr.appendChild(tdS);tr.appendChild(tdR);tb.appendChild(tr);
+    }
+    document.getElementById("nCmd").textContent=String(logs.length);
+    document.getElementById("nOk").textContent=String(ok);
+    document.getElementById("nBad").textContent=String(bad);
+    if(logs.length>seen){
+      for(var j=seen;j<logs.length;j++){if(isBad(logs[j].status)){flash();break}}
+      seen=logs.length;
+    }
+  }
+  function flash(){
+    if(flashing)return;flashing=true;
+    document.body.classList.add("flash");
+    setTimeout(function(){document.body.classList.remove("flash");flashing=false},1000);
+  }
+  async function poll(){
+    if(!sid||!token)return;
+    try{
+      var [lr,sr]=await Promise.all([
+        fetch("/logs?session_id="+encodeURIComponent(sid),{headers:headers()}),
+        fetch("/status?session_id="+encodeURIComponent(sid),{headers:headers()})
+      ]);
+      var lj=await lr.json(),sj=await sr.json();
+      if(lj.logs)render(lj.logs);
+      var dead=!!sj.terminated;
+      var b=document.getElementById("banner");
+      b.textContent=dead?"AGENT TERMINATED":"AGENT RUNNING";
+      b.className="banner "+(dead?"dead":"run");
+    }catch(e){}
+  }
+  function start(){showDash();poll();setInterval(poll,1000)}
+  function showSim(text,cls){
+    var out=document.getElementById("simOut");
+    out.textContent="";out.className=cls||"";
+    var span=document.createElement("span");span.textContent=text;out.appendChild(span);
+  }
+  document.getElementById("simForm").onsubmit=async function(ev){
+    ev.preventDefault();
+    parseHash();
+    if(!sid||!token){showSim("Missing sid/token in URL hash (or connect first).","msg");return}
+    var cmd=document.getElementById("simCmd").value;
+    try{
+      var r=await fetch("/simulate",{method:"POST",headers:headers(),
+        body:JSON.stringify({session_id:sid,command:cmd})});
+      if(r.status===403){showSim("BLOCKED — Authentication failed","bad");return}
+      var j=await r.json();
+      var st=j.status||"BLOCKED";
+      var why=j.reason||reasonOf(j);
+      showSim(st+" — "+why,isBad(st)?"bad":"ok");
+      poll();
+    }catch(e){showSim("Request failed","bad")}
+  };
+  document.getElementById("goBtn").onclick=function(){
+    var s=document.getElementById("sidIn").value.trim();
+    var t=document.getElementById("tokIn").value.trim();
+    if(!s||!t)return;sid=s;token=t;start();
+  };
+  document.getElementById("killBtn").onclick=async function(){
+    var btn=document.getElementById("killBtn");
+    try{
+      await fetch("/kill",{method:"POST",headers:headers(),body:JSON.stringify({session_id:sid})});
+      btn.textContent="Kill signal sent";btn.disabled=true;
+    }catch(e){}
+  };
+  if(parseHash())start();
+})();
+</script>
+</body>
+</html>
