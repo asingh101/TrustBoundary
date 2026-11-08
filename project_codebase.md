@@ -153,7 +153,7 @@ def _intercept(session_id, token, command):
             "session_id": session_id,
             "tool": "shell",
             "command": command,
-            "timestamp": "2026-01-01T00:00:00Z",
+            "timestamp": "2026-11-07T14:00:00Z",
         },
     )
 

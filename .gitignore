@@ -7,16 +7,24 @@ env/
 
 # Secrets and credentials
 .env
+*.env
 .env.*
 !.env.example
+!**/.env.example
+secrets
+**/secrets/**
+*.secret
+API_KEY*
+*_API_KEY*
+api_keys*
+credentials.json
+credentials
+credentials.*
 *.pem
 *.key
 id_rsa
+id_rsa*
 id_rsa.*
-credentials
-credentials.*
-**/secrets/**
-*.secret
 
 # Python
 __pycache__/
@@ -43,6 +51,11 @@ Thumbs.db
 # Streamlit / local runtime
 .streamlit/secrets.toml
 
-# Logs and local dumps
+# Logs and local dumps / tmp artifacts
 *.log
+audit_fallback.jsonl
+**/audit_fallback.jsonl
 *.sqlite3
+tmp/
+*.tmp
+*.bak

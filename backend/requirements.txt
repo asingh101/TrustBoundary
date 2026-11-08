@@ -5,3 +5,4 @@ psutil
 websockets
 pytest
 httpx
+boto3
